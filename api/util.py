@@ -1,26 +1,11 @@
-import base64
-import pickle
-import itertools
-
-from scipy import linalg
-from sklearn.decomposition import PCA
-import numpy as np
-from sklearn import cluster
-from sklearn import mixture
-from scipy.spatial import distance
-from sklearn.preprocessing import StandardScaler
-
-import requests
-
-from config import mapzen_api_key, mapbox_api_key
-
 import logging
 import logging.handlers
+import os
 
+import numpy as np
+import requests
 import spacy
-
-import django_rq
-from ownphotos.settings import IMAGE_SIMILARITY_SERVER
+from scipy.spatial import distance
 
 nlp = spacy.load('en_core_web_sm')
 
@@ -29,7 +14,7 @@ fomatter = logging.Formatter(
     '%(asctime)s : %(filename)s : %(funcName)s : %(lineno)s : %(levelname)s : %(message)s')
 fileMaxByte = 256 * 1024 * 200  # 100MB
 fileHandler = logging.handlers.RotatingFileHandler(
-    './logs/ownphotos.log', maxBytes=fileMaxByte, backupCount=10)
+    '/logs/ownphotos.log', maxBytes=fileMaxByte, backupCount=10)
 fileHandler.setFormatter(fomatter)
 logger.addHandler(fileHandler)
 logger.setLevel(logging.INFO)
@@ -90,41 +75,8 @@ def compute_bic(kmeans,X):
 
     return(BIC)
 
-
-def mapzen_reverse_geocode(lat,lon):
-    url = "https://search.mapzen.com/v1/reverse?point.lat=%f&point.lon=%f&size=1&lang=en&api_key=%s"%(lat,lon,mapzen_api_key)
-    resp = requests.get(url)
-    if resp.status_code == 200:
-        resp_json = resp.json()
-        search_text = []
-        if len(resp_json['features']) > 0:
-            if 'country' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['country'])
-            if 'county' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['county'])
-            if 'macrocounty' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['macrocounty'])
-            if 'locality' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['locality'])
-            if 'region' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['region'])
-            if 'neighbourhood' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['neighbourhood'])
-            if 'name' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['name'])
-            if 'label' in resp_json['features'][0]['properties'].keys():
-                search_text.append(resp_json['features'][0]['properties']['label'])
-        search_text = ' '.join(search_text)
-        search_text = search_text.replace(',',' ')
-        search_text_tokens = list(set(search_text.split()))
-        search_text = ' '.join(search_text_tokens)
-        resp_json['search_text'] = search_text
-        return resp_json
-    else:
-        return {}
-
-
 def mapbox_reverse_geocode(lat,lon):
+    mapbox_api_key = os.environ.get('MAPBOX_API_KEY', '')
     url = "https://api.mapbox.com/geocoding/v5/mapbox.places/%f,%f.json?access_token=%s"%(lon,lat,mapbox_api_key)
     resp = requests.get(url)
     if resp.status_code == 200:

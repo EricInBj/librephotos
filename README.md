@@ -2,13 +2,13 @@
 
 # LibrePhotos
 
-![](https://github.com/sysoppl/librephotos/blob/update-screenshots/screenshots/mockups_main_fhd.png?raw=true)
+![](https://github.com/LibrePhotos/librephotos/blob/dev/screenshots/mockups_main_fhd.png?raw=true)
 <sub>Mockup designed by rawpixel.com / Freepik</sub>
 ## Screenshots
 
-![](https://github.com/sysoppl/librephotos/blob/update-screenshots/screenshots/photo_manage.png?raw=true)
-![](https://github.com/sysoppl/librephotos/blob/update-screenshots/screenshots/photo_info_fhd.png?raw=true)
-![](https://github.com/sysoppl/librephotos/blob/update-screenshots/screenshots/more_to_discover.png?raw=true)
+![](https://github.com/librephotos/librephotos/blob/dev/screenshots/photo_manage.png?raw=true)
+![](https://github.com/librephotos/librephotos/blob/dev/screenshots/photo_info_fhd.png?raw=true)
+![](https://github.com/librephotos/librephotos/blob/dev/screenshots/more_to_discover.png?raw=true)
 
 ## Live demo
 Live [demo available here](https://demo2.librephotos.com/).
@@ -26,10 +26,10 @@ You can join us via [IRC](https://webchat.freenode.net/) or [Discord](https://di
 
 - LibrePhotos is a fork of Ownphotos
 - Self hosted Google Photos clone, with a slight focus on cool graphs
-- Django backend & React frontend. 
+- Django backend and React frontend
 
 ### Contributions
-- Librephotos is in development. Contributions are welcome!
+- Get started in less then 30 minutes by following the [guide here](https://github.com/LibrePhotos/librephotos-docker)
 - Join our discord server or open a pull request to start contributing
 - We are looking for developers who want to port LibrePhotos to ARM
 
@@ -37,37 +37,37 @@ You can join us via [IRC](https://webchat.freenode.net/) or [Discord](https://di
 
 ### Features
 
-#### - Currently implemented:
+#### Currently implemented:
   
-  - Label some faces manually, and train a face classifier to label the rest.
-  - View photos by people in them.
+  - Label some faces manually, and train a face classifier to label the rest
+  - View photos by people in them
   - Automatically generate "event" albums like "Thursday in Berlin"
   - See photos on the map
-  - Backend caching
   - View photos grouped by date
-  - "Optimized" frontend
   - Detect objects in photos, and make them searchable by objects 
-  - Search photos by the location 
+  - Search photos by location 
   - Authentication (using JWT)
   - Create custom albums
   - Docker ready
   
-#### - Upcoming
+#### Upcoming:
 
   - Short term:
-    - Share photos/albums
+    - Add support for RAW photos
+    - Add video support
     - Stability
 
   - Longer term, i.e. haven't thought much about them
     - Basic photo editing, like rotation
-    - Tag undetected face
-    - Add cool graphs
+    - Cluster undetected face
+    - Share photos/albums
 
 ## What does it use?
 
 - **Face detection:** [face_recognition](https://github.com/ageitgey/face_recognition) 
 - **Face classification/clusterization:** scikit-learn
-- **Object detection:** [densecap](https://github.com/jcjohnson/densecap), [places365](http://places.csail.mit.edu/)
+- **Image captioning:** [im2txt](https://github.com/HughKu/Im2txt), 
+- **Scene classification** [places365](http://places.csail.mit.edu/)
 - **Reverse geocoding:** [Mapbox](https://www.mapbox.com/): You need to have an API key. First 50,000 geocode lookups are free every month.
 
 
@@ -91,8 +91,8 @@ The easiest way to do it is using Docker.
 ## Docker-compose method (Recommended)
 
 ```
-wget https://raw.githubusercontent.com/LibrePhotos/librephotos/dev/docker-compose.yml
-wget https://raw.githubusercontent.com/LibrePhotos/librephotos/dev/librephotos.env
+wget https://raw.githubusercontent.com/LibrePhotos/librephotos-docker/main/docker-compose.yml
+wget https://raw.githubusercontent.com/LibrePhotos/librephotos-docker/main/librephotos.env
 cp librephotos.env .env
 
 Do not forget to create the directory's you specified in the ``.env`` file if they do not exist. 
@@ -117,5 +117,5 @@ The basic idea is this:
   - Only the admin user can change the "scan directory" of the users, including the admin itself.
   - Normal users cannot change his/her own "scan directory"
   - Only the admin can find the page to control this under the "user icon (top right) - admin area"
-- For scaning photos that reside in external Nextcloud instances
+- For scanning photos that reside in external Nextcloud instances
   - Any user can change his/her own Nextcloud endpoint, and choose a top level directory in the Nextcloud account.

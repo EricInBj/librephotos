@@ -1,103 +1,31 @@
-from datetime import datetime
-import PIL
-from PIL import ImageOps
-from django.db import models
-from django.db.models import Prefetch
-import face_recognition
+
 import hashlib
-import ownphotos.settings
-import api.util as util
-from api.util import logger
-import exifread
-import base64
-import numpy as np
 import os
-import pytz
-import pyheif
-import magic
-
-from api.exifreader import rotate_image
-
-from collections import Counter
+from datetime import datetime
 from io import BytesIO
-from django.core.files.base import ContentFile
 
-from geopy.geocoders import Nominatim
-from django.contrib.auth.models import AbstractUser
-
-from django.db.models.signals import post_save, post_delete
+import magic
+import api.models
+import api.util as util
+import exifread
+import face_recognition
+import numpy as np
+import ownphotos.settings
+import PIL
+import pyheif
+import pytz
 from django.core.cache import cache
-from django.contrib.postgres.fields import JSONField
-
-from api.places365.places365 import inference_places365
-from api.im2txt.sample import im2txt
-
-from django_cryptography.fields import encrypt
+from api.exifreader import rotate_image
 from api.im2vec import Im2Vec
+from api.models.user import User, get_deleted_user
+from api.places365.places365 import inference_places365
+from api.util import logger
+from django.contrib.postgres.fields import JSONField
+from django.core.files.base import ContentFile
+from django.db import models
+from geopy.geocoders import Nominatim
+from PIL import ImageOps
 
-geolocator = Nominatim()
-default_tz = pytz.timezone('Asia/Seoul')
-im2vec = Im2Vec(cuda=False)
-
-
-def change_api_updated_at(sender=None, instance=None, *args, **kwargs):
-    cache.set('api_updated_at_timestamp', datetime.utcnow())
-
-
-def get_or_create_album_date(date, owner):
-    return AlbumDate.objects.get_or_create(date=date, owner=owner)[0]
-
-def get_album_date(date, owner):
-    try:
-        return AlbumDate.objects.get(date=date, owner=owner)
-    except:
-        return None
-
-def get_album_thing(title, owner):
-    return AlbumThing.objects.get_or_create(title=title, owner=owner)[0]
-
-
-def get_album_place(title, owner):
-    return AlbumPlace.objects.get_or_create(title=title, owner=owner)[0]
-
-
-def get_album_nodate(owner):
-    return AlbumDate.objects.get_or_create(date=None, owner=owner)[0]
-
-
-def get_admin_user():
-    return User.objects.get(is_superuser=True)
-
-
-def get_deleted_user():
-    return User.objects.get_or_create(username='deleted')[0]
-
-
-def get_unknown_person():
-    return Person.objects.get_or_create(name='unknown')[0]
-
-
-def get_or_create_person(name):
-    return Person.objects.get_or_create(name=name)[0]
-
-
-def get_default_longrunningjob_result():
-    return {'progress': {'target': 0, 'current': 0}}
-
-
-class User(AbstractUser):
-    scan_directory = models.CharField(max_length=512, db_index=True)
-    confidence = models.FloatField(default=0.1, db_index=True)
-    avatar = models.ImageField(upload_to='avatars', null=True)
-
-    nextcloud_server_address = models.CharField(
-        max_length=200, default=None, null=True)
-    nextcloud_username = models.CharField(
-        max_length=64, default=None, null=True)
-    nextcloud_app_password = encrypt(
-        models.CharField(max_length=64, default=None, null=True))
-    nextcloud_scan_directory = models.CharField(
-        max_length=512, db_index=True, null=True)
 
 class VisiblePhotoManager(models.Manager):
     def get_queryset(self):
@@ -227,7 +155,7 @@ class Photo(models.Model):
 
     def _generate_thumbnail(self):
         image = self.get_pil_image()
-        if not os.path.exists(os.path.join(ownphotos.settings.MEDIA_ROOT,'thumbnails_big', self.image_hash + '.jpg').strip()):
+        if not os.path.exists(os.path.join(ownphotos.settings.MEDIA_ROOT,'thumbnails_big', self.image_hash + '.jpg').strip()):            
             image.thumbnail(ownphotos.settings.THUMBNAIL_SIZE_BIG,
                             PIL.Image.ANTIALIAS)
             image_io_thumb = BytesIO()
@@ -238,7 +166,7 @@ class Photo(models.Model):
             image_io_thumb.close()
         #thumbnail already exists, add to photo
         else:
-            self.thumbnail_big.name=os.path.join(ownphotos.settings.MEDIA_ROOT,'thumbnails_big', self.image_hash + '.jpg').strip()
+            self.thumbnail_big.name=os.path.join('thumbnails_big', self.image_hash + '.jpg').strip()
 
         if not os.path.exists(os.path.join(ownphotos.settings.MEDIA_ROOT,'square_thumbnails', self.image_hash + '.jpg').strip()):
             square_thumb = ImageOps.fit(image,
@@ -252,7 +180,7 @@ class Photo(models.Model):
             image_io_square_thumb.close()
         #thumbnail already exists, add to photo
         else:
-            self.square_thumbnail.name=os.path.join(ownphotos.settings.MEDIA_ROOT,'square_thumbnails', self.image_hash + '.jpg').strip()
+            self.square_thumbnail.name=os.path.join('square_thumbnails', self.image_hash + '.jpg').strip()
 
         if not os.path.exists(os.path.join(ownphotos.settings.MEDIA_ROOT,'square_thumbnails_small', self.image_hash + '.jpg').strip()):
             square_thumb = ImageOps.fit(image,
@@ -266,7 +194,7 @@ class Photo(models.Model):
             image_io_square_thumb.close()
         #thumbnail already exists, add to photo
         else:
-            self.square_thumbnail_small.name=os.path.join(ownphotos.settings.MEDIA_ROOT,'square_thumbnails_small', self.image_hash + '.jpg').strip()
+            self.square_thumbnail_small.name=os.path.join('square_thumbnails_small', self.image_hash + '.jpg').strip()
         self.save()
 
     def _save_image_to_db(self):
@@ -280,12 +208,12 @@ class Photo(models.Model):
     def _find_album_date(self):
         old_album_date = None
         if self.exif_timestamp:
-            possible_old_album_date = get_album_date(
+            possible_old_album_date = api.models.album_date.get_album_date(
                 date=self.exif_timestamp.date(), owner=self.owner)
             if(possible_old_album_date != None and possible_old_album_date.photos.filter(image_path=self.image_path).exists):
                 old_album_date = possible_old_album_date
         else:
-            possible_old_album_date = get_album_date(date=None, owner=self.owner)
+            possible_old_album_date = api.models.album_date.get_album_date(date=None, owner=self.owner)
             if(possible_old_album_date != None and possible_old_album_date.photos.filter(image_path=self.image_path).exists):
                 old_album_date = possible_old_album_date
         return old_album_date
@@ -318,12 +246,12 @@ class Photo(models.Model):
         album_date = None
 
         if self.exif_timestamp:
-            album_date = get_or_create_album_date(date=self.exif_timestamp.date(), owner=self.owner)
+            album_date = api.models.album_date.get_or_create_album_date(date=self.exif_timestamp.date(), owner=self.owner)  
             album_date.photos.add(self)
         else:
-            album_date = get_or_create_album_date(date=None, owner=self.owner)
+            album_date = api.models.album_date.get_or_create_album_date(date=None, owner=self.owner)
             album_date.photos.add(self)
-        
+        cache.clear()     
         album_date.save()
         self.save()
 
@@ -357,13 +285,14 @@ class Photo(models.Model):
             self._extract_gps_from_exif()
         if (self.exif_gps_lat and self.exif_gps_lon):
             try:
+                geolocator = Nominatim()
                 location = geolocator.reverse(
                     "%f,%f" % (self.exif_gps_lat, self.exif_gps_lon))
                 location = location.raw
                 self.geolocation_json = location
                 self.save()
             except:
-                pass
+                util.logger.exception('something went wrong with geolocating')
 
     def _geolocate_mapbox(self):
         if not (self.exif_gps_lat and self.exif_gps_lon):
@@ -381,22 +310,22 @@ class Photo(models.Model):
                         self.search_location = res['search_text']
                 self.save()
             except:
-                util.logger.warning('something went wrong with geolocating')
-                pass
+                util.logger.exception('something went wrong with geolocating')
 
     def _im2vec(self):
         try:
+            im2vec = Im2Vec(cuda=False)
             image = PIL.Image.open(self.square_thumbnail)
             vec = im2vec.get_vec(image)
             self.encoding = vec.tobytes().hex()
             self.save()
-        except ValueError:
-            pass
+        except:
+            util.logger.exception('something went wrong with im2vec')
 
     def _extract_faces(self):
-        qs_unknown_person = Person.objects.filter(name='unknown')
+        qs_unknown_person = api.models.person.Person.objects.filter(name='unknown')
         if qs_unknown_person.count() == 0:
-            unknown_person = Person(name='unknown')
+            unknown_person = api.models.person.Person(name='unknown')
             unknown_person.save()
         else:
             unknown_person = qs_unknown_person[0]
@@ -415,7 +344,7 @@ class Photo(models.Model):
                 face_image = image[top:bottom, left:right]
                 face_image = PIL.Image.fromarray(face_image)
 
-                face = Face()
+                face = api.models.face.Face()
                 face.image_path = self.image_hash + "_" + str(
                     idx_face) + '.jpg'
                 face.person = unknown_person
@@ -425,8 +354,6 @@ class Photo(models.Model):
                 face.location_bottom = face_location[2]
                 face.location_left = face_location[3]
                 face.encoding = face_encoding.tobytes().hex()
-                #                 face.encoding = face_encoding.dumps()
-
                 face_io = BytesIO()
                 face_image.save(face_io, format="JPEG")
                 face.image.save(face.image_path,
@@ -435,12 +362,13 @@ class Photo(models.Model):
                 face.save()
             logger.info('image {}: {} face(s) saved'.format(
                 self.image_hash, len(face_locations)))
+        cache.clear() 
 
     def _add_to_album_thing(self):
         if type(self.captions_json
                 ) is dict and 'places365' in self.captions_json.keys():
             for attribute in self.captions_json['places365']['attributes']:
-                album_thing = get_album_thing(
+                album_thing = api.models.album_thing.get_album_thing(
                     title=attribute, owner=self.owner)
                 if album_thing.photos.filter(
                        image_hash=self.image_hash).count() == 0:
@@ -448,14 +376,15 @@ class Photo(models.Model):
                     album_thing.thing_type = 'places365_attribute'
                     album_thing.save()
             for category in self.captions_json['places365']['categories']:
-                album_thing = get_album_thing(title=category, owner=self.owner)
+                album_thing = api.models.album_thing.get_album_thing(title=category, owner=self.owner)
                 if album_thing.photos.filter(
                         image_hash=self.image_hash).count() == 0:
-                    album_thing = get_album_thing(
+                    album_thing = api.models.album_thing.get_album_thing(
                         title=category, owner=self.owner)
                     album_thing.photos.add(self)
                     album_thing.thing_type = 'places365_category'
                     album_thing.save()
+        cache.clear() 
 
     def _add_to_album_date(self):
         
@@ -475,8 +404,8 @@ class Photo(models.Model):
                     album_date.location = new_value
             else:
                 album_date.location = {'places': [city_name]}
-
         album_date.save()
+        cache.clear() 
 
     def _add_to_album_place(self):
         if not self.geolocation_json or len(self.geolocation_json) == 0:
@@ -487,282 +416,15 @@ class Photo(models.Model):
         for geolocation_level, feature in enumerate(self.geolocation_json['features']):
             if not 'text' in feature.keys() or feature['text'].isnumeric():
                 continue
-            album_place = get_album_place(feature['text'], owner=self.owner)
+            album_place = api.models.album_place.get_album_place(feature['text'], owner=self.owner)
             if album_place.photos.filter(image_hash=self.image_hash).count() == 0:
                 album_place.geolocation_level = len(
                     self.geolocation_json['features']) - geolocation_level
             album_place.photos.add(self)
             album_place.save()
+        cache.clear() 
 
     def __str__(self):
         return "%s" % self.image_hash
 
 
-class Person(models.Model):
-    KIND_CHOICES = (('USER', 'User Labelled'), ('CLUSTER', 'Cluster ID'),
-                    ('UNKNOWN', 'Unknown Person'))
-    name = models.CharField(blank=False, max_length=128)
-    kind = models.CharField(choices=KIND_CHOICES, max_length=10)
-    mean_face_encoding = models.TextField()
-    cluster_id = models.IntegerField(null=True)
-    account = models.OneToOneField(
-        User, on_delete=models.SET(get_deleted_user), default=None, null=True)
-
-    def __str__(self):
-        return "%d" % self.id
-
-    def _update_average_face_encoding(self):
-        encodings = []
-        faces = self.faces.all()
-        for face in faces:
-            r = base64.b64decode(face.encoding)
-            encoding = np.frombuffer(r, dtype=np.float64)
-            encodings.append(encoding)
-        mean_encoding = np.array(encodings).mean(axis=0)
-        self.mean_face_encoding = base64.encodebytes(mean_encoding.tostring())
-        # ipdb.set_trace()
-
-    def get_photos(self, owner):
-        faces = list(
-            self.faces.prefetch_related(
-                Prefetch(
-                    'photo',
-                    queryset=Photo.objects.exclude(image_hash=None).filter(hidden=False,
-                        owner=owner).order_by('-exif_timestamp').only(
-                            'image_hash', 'exif_timestamp', 'favorited',
-                            'owner__id', 'public',
-                            'hidden').prefetch_related('owner'))))
-
-        photos = [face.photo for face in faces if hasattr(face.photo, 'owner')]
-        return photos
-
-
-class Face(models.Model):
-    photo = models.ForeignKey(
-        Photo,
-        related_name='faces',
-        on_delete=models.SET(get_unknown_person),
-        blank=False,
-        null=True)
-    image = models.ImageField(upload_to='faces')
-    image_path = models.FilePathField()
-
-    person = models.ForeignKey(
-        Person, on_delete=models.SET(get_unknown_person), related_name='faces')
-    person_label_is_inferred = models.NullBooleanField(db_index=True)
-    person_label_probability = models.FloatField(default=0., db_index=True)
-
-    location_top = models.IntegerField()
-    location_bottom = models.IntegerField()
-    location_left = models.IntegerField()
-    location_right = models.IntegerField()
-
-    encoding = models.TextField()
-
-    def __str__(self):
-        return "%d" % self.id
-
-
-class AlbumThing(models.Model):
-    title = models.CharField(max_length=512, db_index=True)
-    photos = models.ManyToManyField(Photo)
-    thing_type = models.CharField(max_length=512, db_index=True, null=True)
-    favorited = models.BooleanField(default=False, db_index=True)
-    owner = models.ForeignKey(
-        User, on_delete=models.SET(get_deleted_user), default=None)
-
-    shared_to = models.ManyToManyField(
-        User, related_name='album_thing_shared_to')
-
-    class Meta:
-        unique_together = ('title', 'owner')
-
-    @property
-    def cover_photos(self):
-        return self.photos.filter(hidden=False)[:4]
-
-    def __str__(self):
-        return "%d: %s" % (self.id, self.title)
-
-
-class AlbumPlace(models.Model):
-    title = models.CharField(max_length=512, db_index=True)
-    photos = models.ManyToManyField(Photo)
-    geolocation_level = models.IntegerField(db_index=True, null=True)
-    favorited = models.BooleanField(default=False, db_index=True)
-    owner = models.ForeignKey(
-        User, on_delete=models.SET(get_deleted_user), default=None)
-
-    shared_to = models.ManyToManyField(
-        User, related_name='album_place_shared_to')
-
-    class Meta:
-        unique_together = ('title', 'owner')
-
-    @property
-    def cover_photos(self):
-        return self.photos.filter(hidden=False)[:4]
-
-    def __str__(self):
-        return "%d: %s" % (self.id, self.title)
-
-
-class AlbumDate(models.Model):
-    title = models.CharField(
-        blank=True, null=True, max_length=512, db_index=True)
-    date = models.DateField(db_index=True, null=True)
-    photos = models.ManyToManyField(Photo)
-    favorited = models.BooleanField(default=False, db_index=True)
-    location = JSONField(blank=True, db_index=True, null=True)
-    owner = models.ForeignKey(
-        User, on_delete=models.SET(get_deleted_user), default=None)
-    shared_to = models.ManyToManyField(
-        User, related_name='album_date_shared_to')
-
-    class Meta:
-        unique_together = ('date', 'owner')
-
-    def __str__(self):
-        return "%d: %s" % (self.id, self.title)
-
-    def ordered_photos(self):
-        return self.photos.all().order_by('-exif_timestamp')
-
-
-class AlbumAuto(models.Model):
-    title = models.CharField(blank=True, null=True, max_length=512)
-    timestamp = models.DateTimeField(db_index=True)
-    created_on = models.DateTimeField(auto_now=False, db_index=True)
-    gps_lat = models.FloatField(blank=True, null=True)
-    gps_lon = models.FloatField(blank=True, null=True)
-    photos = models.ManyToManyField(Photo)
-    favorited = models.BooleanField(default=False, db_index=True)
-    owner = models.ForeignKey(
-        User, on_delete=models.SET(get_deleted_user), default=None)
-
-    shared_to = models.ManyToManyField(
-        User, related_name='album_auto_shared_to')
-
-    class Meta:
-        unique_together = ('timestamp', 'owner')
-
-    def _autotitle(self):
-        weekday = ""
-        time = ""
-        loc = ""
-        if self.timestamp:
-            weekday = util.weekdays[self.timestamp.isoweekday()]
-            hour = self.timestamp.hour
-            if hour > 0 and hour < 5:
-                time = "Early Morning"
-            elif hour >= 5 and hour < 12:
-                time = "Morning"
-            elif hour >= 12 and hour < 18:
-                time = "Afternoon"
-            elif hour >= 18 and hour <= 24:
-                time = "Evening"
-
-        when = ' '.join([weekday, time])
-
-        photos = self.photos.all()
-
-        loc = ''
-        pep = ''
-
-        places = []
-        people = []
-        timestamps = []
-
-        for photo in photos:
-            if photo.geolocation_json and 'features' in photo.geolocation_json.keys(
-            ):
-                for feature in photo.geolocation_json['features']:
-                    if feature['place_type'][0] == 'place':
-                        places.append(feature['text'])
-
-            timestamps.append(photo.exif_timestamp)
-
-            faces = photo.faces.all()
-            for face in faces:
-                people.append(face.person.name)
-
-        if len(places) > 0:
-            cnts_places = Counter(places)
-            loc = 'in ' + ' and '.join(dict(cnts_places.most_common(2)).keys())
-        if len(people) > 0:
-            cnts_people = Counter(people)
-            names = dict([(k, v) for k, v in cnts_people.most_common(2)
-                          if k.lower() != 'unknown']).keys()
-            if len(names) > 0:
-                pep = 'with ' + ' and '.join(names)
-
-        if (max(timestamps) - min(timestamps)).days >= 3:
-            when = '%d days' % ((max(timestamps) - min(timestamps)).days)
-
-        weekend = [5, 6]
-        if max(timestamps).weekday() in weekend and min(
-                timestamps).weekday() in weekend and not (
-                    max(timestamps).weekday() == min(timestamps).weekday()):
-            when = "Weekend"
-
-        title = ' '.join([when, pep, loc]).strip()
-        self.title = title
-
-    def __str__(self):
-        return "%d: %s" % (self.id, self.title)
-
-
-class AlbumUser(models.Model):
-    title = models.CharField(max_length=512)
-    created_on = models.DateTimeField(auto_now=True, db_index=True)
-    photos = models.ManyToManyField(Photo)
-    favorited = models.BooleanField(default=False, db_index=True)
-    owner = models.ForeignKey(
-        User, on_delete=models.SET(get_deleted_user), default=None)
-
-    shared_to = models.ManyToManyField(
-        User, related_name='album_user_shared_to')
-
-    public = models.BooleanField(default=False, db_index=True)
-
-    class Meta:
-        unique_together = ('title', 'owner')
-
-    @property
-    def cover_photos(self):
-        return self.photos.filter(hidden=False)[:4]
-
-
-class LongRunningJob(models.Model):
-    JOB_SCAN_PHOTOS = 1
-    JOB_GENERATE_AUTO_ALBUMS = 2
-    JOB_GENERATE_AUTO_ALBUM_TITLES = 3
-    JOB_TRAIN_FACES = 4
-    JOB_TYPES = (
-        (JOB_SCAN_PHOTOS, "Scan Photos"),
-        (JOB_GENERATE_AUTO_ALBUMS, "Generate Event Albums"),
-        (JOB_GENERATE_AUTO_ALBUM_TITLES, "Regenerate Event Titles"),
-        (JOB_TRAIN_FACES, "Train Faces"),
-    )
-
-    job_type = models.PositiveIntegerField(choices=JOB_TYPES, )
-
-    finished = models.BooleanField(default=False, blank=False, null=False)
-    failed = models.BooleanField(default=False, blank=False, null=False)
-    job_id = models.CharField(max_length=36, unique=True, db_index=True)
-    queued_at = models.DateTimeField(default=datetime.now, null=False)
-    started_at = models.DateTimeField(null=True)
-    finished_at = models.DateTimeField(null=True)
-    result = JSONField(
-        default=get_default_longrunningjob_result, blank=False, null=False)
-    started_by = models.ForeignKey(
-        User, on_delete=models.SET(get_deleted_user), default=None)
-
-
-# for cache invalidation. invalidates all cache on modelviewsets on delete and save on any model
-for model in [
-        Photo, Person, Face, AlbumDate, AlbumAuto, AlbumUser, AlbumPlace,
-        AlbumThing
-]:
-    post_save.connect(receiver=change_api_updated_at, sender=model)
-    post_delete.connect(receiver=change_api_updated_at, sender=model)

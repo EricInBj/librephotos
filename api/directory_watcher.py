@@ -1,20 +1,20 @@
-import os
-import stat
 import datetime
 import hashlib
+import os
+import stat
+
+import magic
 import pytz
-from api.models import Photo, LongRunningJob
+from django.db.models import Q
+from django_rq import job
+from PIL import Image
 
 import api.util as util
 from api.image_similarity import build_image_similarity_index
-
-from django_rq import job
-from django.db.models import Q
-import magic
-from PIL import Image
+from api.models import LongRunningJob, Photo
 
 
-def isValidMedia(filebuffer):
+def is_valid_media(filebuffer):
     try:
         filetype = magic.from_buffer(filebuffer, mime=True)
         return (
@@ -40,16 +40,15 @@ def calculate_hash(user, image_path):
 def should_skip(filepath):
     if not os.getenv('SKIP_PATTERNS'):
         return False
-        
-    skipPatterns = os.getenv('SKIP_PATTERNS')
-    skipList = skipPatterns.split(',')
-    skipList = map(str.strip, skipList)
 
-    res = [ele for ele in skipList if(ele in filepath)] 
+    skip_patterns = os.getenv('SKIP_PATTERNS')
+    skip_list = skip_patterns.split(',')
+    skip_list = map(str.strip, skip_list)
+
+    res = [ele for ele in skip_list if(ele in filepath)]
     return bool(res)
 
 if os.name == "Windows":
-
     def is_hidden(filepath):
         name = os.path.basename(os.path.abspath(filepath))
         return name.startswith(".") or has_hidden_attribute(filepath)
@@ -61,17 +60,14 @@ if os.name == "Windows":
             )
         except:
             return False
-
-
 else:
-
     def is_hidden(filepath):
         return os.path.basename(filepath).startswith(".")
 
 
 def handle_new_image(user, image_path, job_id):
     try:
-        if isValidMedia(open(image_path, "rb").read(2048)):
+        if is_valid_media(open(image_path, "rb").read(2048)):
             elapsed_times = {
                 "md5": None,
                 "thumbnails": None,
@@ -95,7 +91,7 @@ def handle_new_image(user, image_path, job_id):
             elapsed_times["md5"] = elapsed
 
             photo_exists = Photo.objects.filter(
-                Q(image_hash=image_hash) & Q(image_path=image_path)
+                Q(image_hash=image_hash)
             ).exists()
 
             if not photo_exists:
@@ -153,7 +149,7 @@ def handle_new_image(user, image_path, job_id):
 
 def rescan_image(user, image_path, job_id):
     try:
-        if isValidMedia(open(image_path, "rb").read(2048)):
+        if is_valid_media(open(image_path, "rb").read(2048)):
             photo = Photo.objects.filter(Q(image_path=image_path)).get()
             photo._generate_thumbnail()
             photo._extract_date_time_from_exif()
@@ -174,7 +170,7 @@ def rescan_image(user, image_path, job_id):
 def walk_directory(directory, callback):
     for file in os.scandir(directory):
         fpath = os.path.join(directory, file)
-        if not is_hidden(fpath) and not should_skip(fpath):            
+        if not is_hidden(fpath) and not should_skip(fpath):
             if os.path.isdir(fpath):
                 walk_directory(fpath, callback)
             else:

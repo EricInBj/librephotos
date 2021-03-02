@@ -1,23 +1,12 @@
-from api.models import Photo
-from api.models import Person
-from api.models import AlbumAuto
-from api.models import LongRunningJob
-
 from datetime import datetime, timedelta
-from itertools import groupby
 
-import os
-import shutil
 import numpy as np
-import uuid
-import ipdb
-
+import pytz
 from django_rq import job
 
-from tqdm import tqdm
-import rq
+from api.models import AlbumAuto, LongRunningJob, Photo
 from api.util import logger
-import pytz
+
 
 @job
 def regenerate_event_titles(user,job_id):
@@ -59,6 +48,7 @@ def regenerate_event_titles(user,job_id):
         logger.info('job {}: updated lrj entry to db'.format(job_id))
 
     except:
+        logger.exception("An error occured")
         lrj.failed = True
         lrj.finished = True
         lrj.finished_at = datetime.now().replace(tzinfo=pytz.utc)
@@ -88,9 +78,6 @@ def generate_event_albums(user, job_id):
 
         photos_with_timestamp = [(photo.exif_timestamp, photo)
                                  for photo in photos if photo.exif_timestamp]
-        timestamps = [
-            photo.exif_timestamp for photo in photos if photo.exif_timestamp
-        ]
 
         def group(photos_with_timestamp, dt=timedelta(hours=6)):
             photos_with_timestamp = sorted(
@@ -162,6 +149,7 @@ def generate_event_albums(user, job_id):
         lrj.save()
 
     except:
+        logger.exception("An error occured")
         lrj.failed = True
         lrj.finished = True
         lrj.finished_at = datetime.now().replace(tzinfo=pytz.utc)
